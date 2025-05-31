@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Socket.IO Chat</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      /* Custom styles for WhatsApp-like message bubbles */
+      .message {
+        max-width: 75%;
+        margin: 8px 12px;
+        padding: 8px 12px;
+        border-radius: 8px;
+        clear: both;
+      }
+      .sent {
+        background-color: #DCF8C6;
+        margin-left: auto;
+        border-top-right-radius: 2px;
+      }
+      .received {
+        background-color: #FFFFFF;
+        margin-right: auto;
+        border-top-left-radius: 2px;
+      }
+      .system {
+        background-color: #F0F0F0;
+        color: #666;
+        text-align: center;
+        margin: 8px auto;
+        font-style: italic;
+      }
+      #messages {
+        flex-grow: 1;
+        overflow-y: auto;
+        padding-bottom: 80px; /* Space for input bar */
+      }
+      /* Scrollbar styling */
+      #messages::-webkit-scrollbar {
+        width: 6px;
+      }
+      #messages::-webkit-scrollbar-thumb {
+        background-color: #888;
+        border-radius: 3px;
+      }
+      .typing-indicator {
+        color: #666;
+        font-style: italic;
+        padding: 4px 12px;
+        font-size: 0.9em;
+      }
+      .loading-indicator {
+        color: #666;
+        font-style: italic;
+        padding: 4px 12px;
+        font-size: 0.9em;
+        display: none;
+      }
+    </style>
+  </head>
+  <body class="bg-gray-100 font-sans">
+    <!-- Login Modal -->
+    <div id="loginModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
+      <div class="bg-white p-6 rounded-lg shadow-lg w-96">
+        <h2 class="text-xl font-bold mb-4">Enter Your Name</h2>
+        <input type="text" id="username" placeholder="Your name" class="w-full p-2 border rounded mb-4">
+        <button onclick="joinChat()" class="w-full bg-green-500 text-white p-2 rounded hover:bg-green-600">Join Chat</button>
+      </div>
+    </div>
+
+    <div class="flex flex-col h-screen max-w-md mx-auto bg-white shadow-lg">
+      <!-- Chat Header -->
+      <div class="bg-green-600 text-white p-4 flex items-center justify-between">
+        <div class="flex-1">
+          <h1 class="text-lg font-semibold">Chat</h1> 
+          <p id="onlineCount" class="text-sm">0 online</p>
+        </div>
+        <div id="onlineUsers" class="text-sm"></div>
+      </div>
+
+      <!-- Message List -->
+      <ul id="messages" class="flex-1 overflow-y-auto p-4 bg-gray-100"></ul>
+
+      <!-- Typing and Loading Indicators -->
+      <div id="typingIndicator" class="typing-indicator hidden"></div>
+      <div id="loadingIndicator" class="loading-indicator">Uploading image...</div>
+
+      <!-- Input Bar -->
+      <div class="fixed bottom-0 w-full max-w-md bg-white border-t border-gray-200 p-4 flex items-center">
+        <input
+          id="msg"
+          placeholder="Type a message"
+          class="flex-1 p-2 rounded-full border border-gray-300 focus:outline-none focus:ring-2 focus:ring-green-500"
+          onkeyup="handleTyping()"
+        />
+        <input type="file" id="imageInput" accept="image/*" style="display:none" onchange="sendImage(event)">
+        <button
+          onclick="sendMsg()"
+          class="ml-2 bg-green-500 text-white p-2 rounded-full hover:bg-green-600 focus:outline-none"
+        >
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path>
+          </svg>
+        </button>
+        <button onclick="document.getElementById('imageInput').click()" class="ml-2 bg-blue-500 text-white p-2 rounded-full hover:bg-blue-600 focus:outline-none">
+          📷
+        </button>
+      </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+      const socket = io();
+      let username = '';
+      let typingTimeout;
+
+      function joinChat() {
+        username = document.getElementById('username').value.trim();
+        if (username) {
+          document.getElementById('loginModal').style.display = 'none';
+          socket.emit('user join', username);
+        } else {
+          alert('Please enter a username');
+        }
+      }
+
+      function formatTime(timestamp) {
+        return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      }
+
+      function sendMsg() {
+        const msg = document.getElementById('msg').value.trim();
+        if (msg) {
+          socket.emit('chat message', msg);
+          document.getElementById('msg').value = '';
+          socket.emit('typing', false);
+        }
+      }
+
+      function handleTyping() {
+        socket.emit('typing', true);
+        clearTimeout(typingTimeout);
+        typingTimeout = setTimeout(() => {
+          socket.emit('typing', false);
+        }, 1000);
+      }
+
+      function sendImage(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+
+        // Validate file size (max 5MB)
+        const maxSize = 5 * 1024 * 1024; // 5MB in bytes
+        if (file.size > maxSize) {
+          alert('Image size exceeds 5MB. Please choose a smaller image.');
+          return;
+        }
+
+        // Show loading indicator
+        document.getElementById('loadingIndicator').style.display = 'block';
+
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const imageData = e.target.result; // Base64 string
+          socket.emit('chat image', imageData);
+          document.getElementById('loadingIndicator').style.display = 'none';
+          document.getElementById('imageInput').value = ''; // Clear input
+        };
+        reader.onerror = () => {
+          alert('Error reading the image. Please try again.');
+          document.getElementById('loadingIndicator').style.display = 'none';
+        };
+        reader.readAsDataURL(file);
+      }
+
+      function addMessage(message) {
+        console.log('Received message:', message); // Debug log
+        const li = document.createElement('li');
+        const time = message.timestamp ? formatTime(message.timestamp) : '';
+        const usernameText = message.username ? message.username : '';
+        
+        if (message.type === 'system') {
+          li.className = 'message system';
+          li.textContent = message.text;
+        } else if (message.type === 'image') {
+          li.className = message.username === username ? 'message sent' : 'message received';
+          li.innerHTML = `
+            <div class="font-semibold text-sm">${usernameText}</div>
+            <img src="${message.image}" style="max-width:200px; border-radius:8px; margin:8px 0;">
+            <div class="text-xs text-gray-500 text-right">${time}</div>
+          `;
+        } else {
+          li.className = message.username === username ? 'message sent' : 'message received';
+          li.innerHTML = `
+            <div class="font-semibold text-sm">${usernameText}</div>
+            <div>${message.text}</div>
+            <div class="text-xs text-gray-500 text-right">${time}</div>
+          `;
+        }
+        
+        document.getElementById('messages').appendChild(li);
+        document.getElementById('messages').scrollTop = document.getElementById('messages').scrollHeight;
+      }
+
+      // Socket event handlers
+      socket.on('chat message', (message) => {
+        addMessage(message);
+      });
+
+      socket.on('message history', (history) => {
+        history.forEach(message => addMessage(message));
+      });
+
+      socket.on('users list', (users) => {
+        document.getElementById('onlineCount').textContent = `${users.length} online`;
+        document.getElementById('onlineUsers').textContent = users.join(', ');
+      });
+
+      socket.on('user typing', (data) => {
+        const typingIndicator = document.getElementById('typingIndicator');
+        if (data.isTyping) {
+          typingIndicator.textContent = `${data.username} is typing...`;
+          typingIndicator.classList.remove('hidden');
+        } else {
+          typingIndicator.classList.add('hidden');
+        }
+      });
+
+      socket.on('chat image', (message) => {
+        addMessage(message);
+      });
+
+      // Handle Enter key
+      document.getElementById('msg').addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+          sendMsg();
+        }
+      });
+    </script>
+  </body>
+</html>
