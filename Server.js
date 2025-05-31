@@ -89,7 +89,9 @@ io.on('connection', (socket) => {
   });
 });
 
-const PORT = 3000;
-server.listen(PORT, () => {
-  console.log(`Server listening on http://localhost:${PORT}`);
+// ✅ Use dynamic port and host for Render
+const PORT = process.env.PORT || 3000;
+const HOST = '0.0.0.0';
+server.listen(PORT, HOST, () => {
+  console.log(`Server listening on http://${HOST}:${PORT}`);
 });
